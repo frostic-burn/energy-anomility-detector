@@ -93,7 +93,29 @@ def extract_temporal_features(df, datetime_col):
     df_copy = df.copy()
     
     if not pd.api.types.is_datetime64_any_dtype(df_copy[datetime_col]):
-        df_copy[datetime_col] = pd.to_datetime(df_copy[datetime_col])
+        dt_series = pd.to_datetime(df_copy[datetime_col], errors='coerce')
+
+        # Some CSV exports pack full rows into one column (e.g. "ts,val,temp").
+        if dt_series.isna().all():
+            packed_tokens = (
+                df_copy[datetime_col]
+                .astype(str)
+                .str.split(',', n=1)
+                .str[0]
+                .str.strip()
+            )
+            dt_series = pd.to_datetime(packed_tokens, errors='coerce')
+
+        valid_ratio = dt_series.notna().mean() if len(dt_series) > 0 else 0
+        if valid_ratio < 0.5:
+            sample_bad = df_copy[datetime_col].dropna().astype(str).head(1)
+            bad_value = sample_bad.iloc[0] if len(sample_bad) else "<empty>"
+            raise ValueError(
+                f"Could not parse datetime column '{datetime_col}'. "
+                f"Example value: {bad_value}"
+            )
+
+        df_copy[datetime_col] = dt_series
     
     df_copy['hour'] = df_copy[datetime_col].dt.hour
     df_copy['day'] = df_copy[datetime_col].dt.day

@@ -299,6 +299,32 @@ def get_probable_causes(explanation, timestamp_value=None):
     return causes[:4]
 
 
+def normalize_uploaded_dataframe(df):
+    """Normalize edge-case CSV uploads where each row is packed into one string column."""
+    if df is None or df.empty or df.shape[1] != 1:
+        return df, False
+
+    only_col = df.columns[0]
+    series = df[only_col].astype(str)
+
+    # If rows look like "a,b,c" in one cell, split into proper columns.
+    comma_density = series.str.count(',').mean()
+    if comma_density < 1:
+        return df, False
+
+    expanded = series.str.split(',', expand=True)
+    if expanded.shape[1] <= 1:
+        return df, False
+
+    header_parts = [part.strip() for part in str(only_col).split(',')]
+    if len(header_parts) == expanded.shape[1]:
+        expanded.columns = header_parts
+    else:
+        expanded.columns = [f"column_{idx + 1}" for idx in range(expanded.shape[1])]
+
+    return expanded, True
+
+
 # ===========================
 # SIDEBAR CONFIGURATION
 # ===========================
@@ -325,6 +351,9 @@ with st.sidebar:
     if uploaded_file is not None:
         try:
             st.session_state.df = pd.read_csv(uploaded_file)
+            st.session_state.df, was_normalized = normalize_uploaded_dataframe(st.session_state.df)
+            if was_normalized:
+                st.info("Detected packed CSV rows and auto-corrected column parsing.")
             st.success("✅ File uploaded successfully!")
         except Exception as e:
             st.error(f"Error loading file: {e}")
